@@ -155,17 +155,14 @@ def map_genes_to_segments(gff_filepath, gfa_filepath):
     annotation_map = annotation_mapping(gff_filepath)
 
     for sequence_id, genes in annotation_map.items():
-        if sequence_id not in segment_map:
+        if sequence_id not in segment_tree:
             continue
         for gene, features in genes.items():
             for feature in features:
                 feat_start = feature['feat_start']
                 feat_end = feature['feat_end']
                 feat_type = feature['feat_type']
-                for overlaps in segment_tree[feat_start:feat_end]:
-                    if overlaps['seg_seq'] != sequence_id:
-                        continue
-
+                for overlaps in segment_tree[sequence_id][feat_start:feat_end]:
                     seg_start = overlaps.begin
                     seg_end = overlaps.end
                     overlap_start = max(seg_start, feat_start)
@@ -179,35 +176,11 @@ def map_genes_to_segments(gff_filepath, gfa_filepath):
                         'overlap_end': overlap_end,
                     })
 
-    # for chrom, features  in annotation_map.items():
-    #     if chrom not in segment_map:
-    #         continue
-    #     for feature_type, annotations in features.items():
-    #         for annotation in annotations:
-    #             anno_start = annotation['feat_start']
-    #             anno_end = annotation['feat_end']
-    #
-    #             possible_segments = segment_map[chrom]
-    #             for seg_info in possible_segments:
-    #                 seg_start = seg_info['seg_start']
-    #                 seg_end = seg_info['seg_end']
-    #                 # Calculate overlap region in each segment
-    #                 overlap_start = max(anno_start, seg_start)
-    #                 overlap_end = min(anno_end, seg_end)
-    #
-    #                 if overlap_start < overlap_end:
-    #                     mappings.append({
-    #                         'seqname': chrom,
-    #                         'feature_type': feature_type,
-    #                         'start': overlap_start - seg_start,
-    #                         'end': overlap_end - seg_start,
-    #                     })
-    #
-    # return mappings
-
-
+    return mappings
 
 if __name__ == '__main__':
     ref_loc = "test_files/chm13.MANE.gff3"
     target_loc = "test_files/chm13-kolf2.1j.gfa"
     mappings = map_genes_to_segments(ref_loc, target_loc)
+    for mapping in mappings:
+        print(mapping)
