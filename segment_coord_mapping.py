@@ -142,6 +142,25 @@ def annotation_mapping(gff_filepath):
 
         return annotation_map
 
+def generate_bed(mappings, output_path):
+    '''
+    Generates a BED file from a list of mapped gene coordinates.
+
+    :param mappings: A list of dictionaries holding genomic information from annotation mapping.
+    :param output_path: The path to the output BED file.
+    :return:
+    '''
+
+    print(f'Generating BED file...\n')
+
+    with open(output_path, 'w') as f:
+        for feature in mappings:
+            for field in feature.values():
+                f.write(f"{field}\t")
+            f.write('\n')
+
+    print(f'Generated BED file to {output_path}')
+
 def map_genes_to_segments(gff_filepath, gfa_filepath):
     '''
     Maps gene coordinates from our reference annotation onto reference segments
@@ -165,15 +184,23 @@ def map_genes_to_segments(gff_filepath, gfa_filepath):
                 for overlaps in segment_tree[sequence_id][feat_start:feat_end]:
                     seg_start = overlaps.begin
                     seg_end = overlaps.end
+                    seg_info = overlaps.data
+
                     overlap_start = max(seg_start, feat_start)
                     overlap_end = min(seg_end, feat_end)
+
                     mappings.append({
                         'sequence_id': sequence_id,
+                        'gene': gene,
                         'feature_type': feat_type,
+                        'original_feat_start': feat_start,
+                        'original_feat_end': feat_end,
+                        'segment_id': seg_info['seg_id'],
                         'seg_start': seg_start,
                         'seg_end': seg_end,
                         'overlap_start': overlap_start,
                         'overlap_end': overlap_end,
+                        'overlap_len': overlap_end - overlap_start
                     })
 
     return mappings
@@ -181,6 +208,7 @@ def map_genes_to_segments(gff_filepath, gfa_filepath):
 if __name__ == '__main__':
     ref_loc = "test_files/chm13.MANE.gff3"
     target_loc = "test_files/chm13-kolf2.1j.gfa"
+    bed_output_loc = "test_files/chm13-kolf2.1j.bed"
+
     mappings = map_genes_to_segments(ref_loc, target_loc)
-    for mapping in mappings:
-        print(mapping)
+    generate_bed(mappings, bed_output_loc)
