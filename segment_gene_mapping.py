@@ -1,3 +1,5 @@
+import re
+import time
 from collections import defaultdict
 
 from intervaltree import IntervalTree, Interval
@@ -11,14 +13,13 @@ def segment_mapping(gfa_filepath):
     :return: A dictionary where keys are chromosomes (str) and values are
              IntervalTree object holding genomic information.
     '''
+    print('Parsing Segments from .gfa file...')
+    time.sleep(3)
     with open(gfa_filepath, 'r') as f:
         segment_tree = defaultdict(IntervalTree)
+        segment_id_lookup = {}
 
         for line in f:
-           # Skip header
-            if line.startswith('H'):
-                continue
-
             # Only search for segments
             if not line.startswith('S'):
                 continue
@@ -37,7 +38,6 @@ def segment_mapping(gfa_filepath):
 
             sequence_id = None
             current_start = None
-            found_length_tag = False
 
             # Fields 0 - 2 are required, so this will be searching for optional tags
             for field in fields[3:]:
@@ -62,29 +62,33 @@ def segment_mapping(gfa_filepath):
                         # If sequence was '*', use this length
                         if length is None:
                             length = int(value)
-                            found_length_tag = True
                 except ValueError:
                     print(f"Invalid value type for tag '{tagName}' in segment {segment_id}: '{value}'")
 
-            if length is None and not found_length_tag:
-                print(f"Could not determine length for segment {segment_id}. Skipping.")
+            if length is None:
+                print(f"Error: Could not determine length for segment {segment_id} in S-line. Skipping this segment. Line: {line.strip()}")
                 continue
 
-            if current_start is not None and sequence_id is not None:
-                segment_info = {
-                    'seg_start': current_start,
-                    'seg_end': current_start + length,
-                    'seg_length': length,
-                    'seg_id': segment_id,
-                }
+            segment_info = {
+                'segment_id': segment_id,
+                'segment_length': length,
+                'sequence_id': sequence_id,
+                'seg_start_on_sequence_id': current_start
+            }
 
+            if current_start is not None and sequence_id is not None:
                 segment_tree[sequence_id].add(
                     Interval(current_start, current_start + length, segment_info)
                 )
             else:
                 print(f"Missing 'SO' or 'SN' tag for segment '{segment_id}'. Skipping. Line: {line}")
 
-        return segment_tree
+            segment_id_lookup[segment_id] = segment_info
+
+        print('Successfully parsed Segments from .gfa file...')
+        time.sleep(3)
+
+        return segment_tree, segment_id_lookup
 
 def annotation_mapping(gff_filepath):
     '''
@@ -95,6 +99,9 @@ def annotation_mapping(gff_filepath):
              dictionaries with 'feat_start', 'feat_end'.
              Returns an empty dictionary if no valid annotations are found.:
     '''
+    print('Parsing Annotations from .gff file...')
+    time.sleep(3)
+
     annotation_map = defaultdict(lambda: defaultdict(list))
 
     with open(gff_filepath, 'r') as f:
@@ -140,6 +147,9 @@ def annotation_mapping(gff_filepath):
 
             annotation_map[sequence_id][gene].append(annotation_info)
 
+        print('Successfully parsed Annotations from .gff file...')
+        time.sleep(3)
+
         return annotation_map
 
 def generate_bed(mappings, output_path):
@@ -152,6 +162,7 @@ def generate_bed(mappings, output_path):
     '''
 
     print(f'Generating BED file...\n')
+    time.sleep(3)
 
     with open(output_path, 'w') as f:
         for feature in mappings:
@@ -160,6 +171,86 @@ def generate_bed(mappings, output_path):
             f.write('\n')
 
     print(f'Generated BED file to {output_path}')
+    time.sleep(3)
+
+def walk_paths(gfa_filepath, seg_id_lookup):
+    '''
+    Maps Walk paths for a GFA file
+
+    :param gfa_filepath: filepath of our target GFA file
+    :param seg_id_lookup: A dictionary mapping each segment IDs to segment information.
+    :return:
+    '''
+    walks = defaultdict(lambda: defaultdict(list))
+
+    with open(gfa_filepath, 'r') as f:
+        for line in f:
+            if not line.startswith('W'):
+                continue
+
+            fields = line.strip().split('\t')
+
+            if len(fields) < 7:
+                print(f"Malformed W-line (expected at least 7 fields): {line.strip()}. Skipping.")
+                continue
+
+            sample_id = fields[1]
+            sequence_id = fields[3]
+
+            walk_start = fields[4]
+            walk_end = fields[5]
+
+            current_position = 0
+
+            walk = fields[6]
+
+            if walk_start != "*":
+                try:
+                    walk_start = int(walk_start)
+                    current_position = walk_start
+                except ValueError:
+                    print(f"Malformed field (expecting an integer): {walk_start}. Skipping.")
+
+            if walk_end != "*":
+                try:
+                    walk_end = int(walk_end)
+                except ValueError:
+                    print(f"Malformed field (expecting an integer): {walk_end}. Skipping.")
+
+            segments = re.findall(r'([<>])(\d+)', walk)
+
+            if not segments:
+                print(
+                    f"Warning: W-line for {sample_id}/{sequence_id} has no valid segments in path string '{walk}'. Skipping this walk.")
+                continue
+
+            for segment in segments:
+                orientation = '+' if segment[0] == '>' else '-'
+
+                if segment_id not in seg_id_lookup:
+                    print(
+                        f"Error: Segment '{segment_id}' in walk for {sample_id}/{sequence_id} not found in S-line data (seg_id_lookup). Skipping this entire walk.")
+                    break
+
+                segment_id = segment[1]
+                seg_info = seg_id_lookup[segment_id]
+                segment_length = seg_info['segment_length']
+                segment_chromosome = seg_info['sequence_id']
+
+                segment_info = {
+                    'segment_length': segment_length,
+                    'orientation': orientation,
+                    'segment_id': segment_id,
+                    'sample_id': sample_id,
+                    'segments_sequence_id': segment_chromosome,
+                    'current_start_position_on_walk': current_position,
+                    'current_end_position_on_walk': current_position + segment_length
+                }
+
+                walks[sample_id][sequence_id].append(segment_info)
+                current_position += segment_length
+
+    return walks
 
 def map_genes_to_segments(gff_filepath, gfa_filepath):
     '''
@@ -170,8 +261,11 @@ def map_genes_to_segments(gff_filepath, gfa_filepath):
     :return mappings: A list of each segment ID with its chromosome, feature type, gene start/end positions, and gene
     '''
     mappings = []
-    segment_tree = segment_mapping(gfa_filepath)
+    segment_tree, seg_id_lookup = segment_mapping(gfa_filepath)
     annotation_map = annotation_mapping(gff_filepath)
+
+    print("Mapping gene coordinates onto reference segments...")
+    time.sleep(3)
 
     for sequence_id, genes in annotation_map.items():
         if sequence_id not in segment_tree:
@@ -203,12 +297,17 @@ def map_genes_to_segments(gff_filepath, gfa_filepath):
                         'overlap_len': overlap_end - overlap_start
                     })
 
-    return mappings
+    print("Successfully mapped gene coordinates to reference segments...")
+    time.sleep(3)
+
+    return mappings, seg_id_lookup
 
 if __name__ == '__main__':
     ref_loc = "test_files/chm13.MANE.gff3"
     target_loc = "test_files/chm13-kolf2.1j.gfa"
-    bed_output_loc = "test_files/chm13-kolf2.1j.bed"
+    bed_output_loc = ref_loc + ".bed"
 
-    mappings = map_genes_to_segments(ref_loc, target_loc)
+    mappings, seg_id_lookup = map_genes_to_segments(ref_loc, target_loc)
     generate_bed(mappings, bed_output_loc)
+
+    # walk_paths = walk_paths(target_loc, seg_id_lookup)
