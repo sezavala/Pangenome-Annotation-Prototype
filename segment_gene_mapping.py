@@ -309,7 +309,3 @@ if __name__ == '__main__':
     generate_bed(mappings, bed_output_loc)
 
     walk_paths = walk_paths(target_loc, seg_id_lookup)
-    for sample_id, sequence_ids in walk_paths.items():
-        for id, segments in sequence_ids.items():
-            for segment in segments:
-                print(f"{sample_id}/{id}: {segment}")
