@@ -85,7 +85,7 @@ def segment_mapping(gfa_filepath):
 
             segment_id_lookup[segment_id] = segment_info
 
-        print('Successfully parsed Segments from .gfa file...')
+        print('Successfully parsed Segments from .gfa file...\n')
         time.sleep(3)
 
         return segment_tree, segment_id_lookup
@@ -147,7 +147,7 @@ def annotation_mapping(gff_filepath):
 
             annotation_map[sequence_id][gene].append(annotation_info)
 
-        print('Successfully parsed Annotations from .gff file...')
+        print('Successfully parsed Annotations from .gff file...\n')
         time.sleep(3)
 
         return annotation_map
@@ -161,7 +161,7 @@ def generate_bed(mappings, output_path):
     :return:
     '''
 
-    print(f'Generating BED file...\n')
+    print(f'Generating BED file...')
     time.sleep(3)
 
     with open(output_path, 'w') as f:
@@ -170,7 +170,7 @@ def generate_bed(mappings, output_path):
                 f.write(f"{field}\t")
             f.write('\n')
 
-    print(f'Generated BED file to {output_path}')
+    print(f'Generated BED file to {output_path}\n')
     time.sleep(3)
 
 def walk_paths(gfa_filepath, seg_id_lookup):
@@ -224,25 +224,23 @@ def walk_paths(gfa_filepath, seg_id_lookup):
                     f"Warning: W-line for {sample_id}/{sequence_id} has no valid segments in path string '{walk}'. Skipping this walk.")
                 continue
 
-            for segment in segments:
-                orientation = '+' if segment[0] == '>' else '-'
+            for orientation, seg_id in segments:
+                orientation_char = '+' if orientation == '>' else '-'
 
-                if segment_id not in seg_id_lookup:
+                if seg_id not in seg_id_lookup:
                     print(
-                        f"Error: Segment '{segment_id}' in walk for {sample_id}/{sequence_id} not found in S-line data (seg_id_lookup). Skipping this entire walk.")
+                        f"Error: Segment '{seg_id}' in walk for {sample_id}/{sequence_id} not found in S-line data (seg_id_lookup). Skipping this entire walk.")
                     break
 
-                segment_id = segment[1]
-                seg_info = seg_id_lookup[segment_id]
+                seg_info = seg_id_lookup[seg_id]
                 segment_length = seg_info['segment_length']
-                segment_chromosome = seg_info['sequence_id']
 
                 segment_info = {
                     'segment_length': segment_length,
-                    'orientation': orientation,
-                    'segment_id': segment_id,
+                    'orientation': orientation_char,
+                    'segment_id': seg_id,
                     'sample_id': sample_id,
-                    'segments_sequence_id': segment_chromosome,
+                    'sequence_id': sequence_id,
                     'current_start_position_on_walk': current_position,
                     'current_end_position_on_walk': current_position + segment_length
                 }
@@ -289,7 +287,7 @@ def map_genes_to_segments(gff_filepath, gfa_filepath):
                         'feature_type': feat_type,
                         'original_feat_start': feat_start,
                         'original_feat_end': feat_end,
-                        'segment_id': seg_info['seg_id'],
+                        'segment_id': seg_info['segment_id'],
                         'seg_start': seg_start,
                         'seg_end': seg_end,
                         'overlap_start': overlap_start,
@@ -297,7 +295,7 @@ def map_genes_to_segments(gff_filepath, gfa_filepath):
                         'overlap_len': overlap_end - overlap_start
                     })
 
-    print("Successfully mapped gene coordinates to reference segments...")
+    print("Successfully mapped gene coordinates to reference segments...\n")
     time.sleep(3)
 
     return mappings, seg_id_lookup
@@ -310,4 +308,8 @@ if __name__ == '__main__':
     mappings, seg_id_lookup = map_genes_to_segments(ref_loc, target_loc)
     generate_bed(mappings, bed_output_loc)
 
-    # walk_paths = walk_paths(target_loc, seg_id_lookup)
+    walk_paths = walk_paths(target_loc, seg_id_lookup)
+    for sample_id, sequence_ids in walk_paths.items():
+        for id, segments in sequence_ids.items():
+            for segment in segments:
+                print(f"{sample_id}/{id}: {segment}")
