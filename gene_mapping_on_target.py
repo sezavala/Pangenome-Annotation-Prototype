@@ -1,17 +1,17 @@
 import re
 import time
 from collections import defaultdict
-from tools import generate_bed
+from tools import generate_bed_like_file
 
 from intervaltree import IntervalTree, Interval
 
 
-def get_walks(gfa_filepath, seg_id_lookup, reference_sample):
+def get_walks(gfa_filepath, seg_lookup, reference_sample):
     '''
     Maps Walk paths for a GFA file
 
     :param gfa_filepath: filepath of our target GFA file
-    :param seg_id_lookup: A dictionary mapping each segment IDs to segment information.
+    :param seg_lookup: A dictionary mapping each segment IDs to segment information.
     :param reference_sample: The sample ID of the reference genome to exclude from walks.
     :return walks: A defaultdict where keys are sample IDs (str), and values are another defaultdict.
                    The inner defaultdict's keys are sequence IDs (str, e.g., 'chr1#hap1'), and values
@@ -68,12 +68,12 @@ def get_walks(gfa_filepath, seg_id_lookup, reference_sample):
             for orientation_char, seg_id in segments:
                 orientation = '+' if orientation_char == '>' else '-'
 
-                if seg_id not in seg_id_lookup:
+                if seg_id not in seg_lookup:
                     print(
                         f"Error: Segment '{seg_id}' in walk for {sample_id}/{sequence_id} not found in S-line data (seg_id_lookup). Skipping this entire walk.")
                     break  # Break out of inner loop to skip the walk
 
-                seg_info_from_lookup = seg_id_lookup[seg_id]
+                seg_info_from_lookup = seg_lookup[seg_id]
                 segment_length = seg_info_from_lookup['segment_length']
 
                 # Store information about this segment instance as it appears in the walk
@@ -81,8 +81,8 @@ def get_walks(gfa_filepath, seg_id_lookup, reference_sample):
                     'segment_id': seg_id,
                     'segment_length': segment_length,
                     'orientation': orientation,
-                    'current_start_position_on_walk': current_position,  # 0-based inclusive
-                    'current_end_position_on_walk': current_position + segment_length  # 0-based exclusive
+                    'current_start_position_on_walk': current_position,
+                    'current_end_position_on_walk': current_position + segment_length
                 }
 
                 # Add this segment instance to the IntervalTree for the current sample's walk
@@ -96,121 +96,81 @@ def get_walks(gfa_filepath, seg_id_lookup, reference_sample):
     return walks
 
 
-def map_genes_to_target_walks(gene_ref_mappings, all_walks_data, seg_lookup):
-    """
-    Maps gene features from reference segments onto specific target genome walks.
-    Identifies basic variants like novel insertions.
+def map_genes_to_target_segments(gene_ref_mappings, all_walks_data, seg_lookup):
+    gene_start_on_target_walk = gene_end_on_target_walk = None
+    mapped_target_segments = defaultdict(lambda: defaultdict(list))
 
-    :param gene_ref_mappings: List of dictionaries, output from map_genes_to_segments (0-based, half-open coordinates).
-    :param all_walks_data: Dictionary, output from get_walks (sample_id -> contig_id -> IntervalTree).
-    :param seg_id_lookup: Dictionary, mapping segment_id to its full info (from segment_mapping).
-    :param reference_sample_id_to_exclude: The sample ID representing the reference genome to skip.
-    :return: A defaultdict (sample_id -> contig_id -> list of mapped_gene_info dicts).
-    """
-    mapped_genes_on_target_walks = defaultdict(lambda: defaultdict(list))
+    for sample_id, walks_for_sample in all_walks_data.items():
+        target_output = f"test_files/{sample_id}.gene_mappings.bed"
 
-    print("Starting gene mapping onto target genome walks...")
-    time.sleep(3)
-
-    # Iterate through each sample's walks
-    for sample_id, sequence_ids in all_walks_data.items():
-        print(f"  Processing walks for sample: {sample_id}")
-
-        # Iterate through each sequence (haplotype path) within the sample
-        for sequence_id, segments_in_walk in sequence_ids.items():  # segments_in_walk is an IntervalTree
-            print(f"    Processing sequence: {sequence_id}")
+        for target_sequence_id, segments_in_this_walk in walks_for_sample.items():
 
             segments_by_id_in_current_walk = defaultdict(list)
-            for interval_in_walk in segments_in_walk:
+            for interval_in_walk in segments_in_this_walk:
                 segments_by_id_in_current_walk[interval_in_walk.data['segment_id']].append(interval_in_walk.data)
 
-            # For each gene annotation mapped on a reference segment:
-            for gene_feature_mapping in gene_ref_mappings:
-                ref_segment_id = gene_feature_mapping['segment_id']
-                original_ref_chrom = gene_feature_mapping['sequence_id']
-                original_gene_start = gene_feature_mapping.get('original_feat_start')
-                original_gene_end = gene_feature_mapping.get('original_feat_end')
+            for gene_annotation_on_reference in gene_ref_mappings:
+                ref_segment_id = gene_annotation_on_reference['segment_id']
+                ref_gene = gene_annotation_on_reference['gene']
+                ref_feature_type = gene_annotation_on_reference['feature_type']
+                gene_start_relative_to_ref_seg = gene_annotation_on_reference['overlap_start'] - \
+                                                 gene_annotation_on_reference['seg_start_on_ref']
+                gene_end_relative_to_ref_seg = gene_annotation_on_reference['overlap_end'] - \
+                                               gene_annotation_on_reference['seg_start_on_ref']
 
-                gene_start_relative_to_ref_seg = \
-                    gene_feature_mapping['overlap_start'] - gene_feature_mapping['seg_start_on_ref']
-                gene_end_relative_to_ref_seg = \
-                    gene_feature_mapping['overlap_end'] - gene_feature_mapping[
-                        'seg_start_on_ref']
+                ref_segments_on_walk = segments_by_id_in_current_walk.get(ref_segment_id, [])
 
-                ref_seg_original_info = seg_lookup.get(ref_segment_id)
-                if not ref_seg_original_info:
-                    print(
-                        f"Warning: Reference segment '{ref_segment_id}' not found in seg_id_lookup. Skipping gene {gene_feature_mapping['gene']}.")
+                if not ref_segments_on_walk:
                     continue
 
-                # Retrieve the full segment information for the reference segment
-                found_segments_in_walk = segments_by_id_in_current_walk.get(ref_segment_id, [])
-
-                if not found_segments_in_walk:
-                    continue
-
-                for walk_segment_info in found_segments_in_walk:
-                    walk_seg_start = walk_segment_info['current_start_position_on_walk']
-                    walk_seg_end = walk_segment_info['current_end_position_on_walk']
+                for walk_segment_info in ref_segments_on_walk:
+                    walk_seg_start_pos_on_walk = walk_segment_info['current_start_position_on_walk']
+                    walk_seg_end_pos_on_walk = walk_segment_info['current_end_position_on_walk']
                     walk_seg_orientation = walk_segment_info['orientation']
 
-                    # If there is no sequence_id, this means the segment is a variant
-                    has_tags = seg_lookup[ref_segment_id]['sequence_id'] is not None
-
-                    # --- Coordinate Translation based on Orientation ---
                     if walk_seg_orientation == '+':
-                        # Gene's relative position maps directly (example, seg starts at 150, gene on reference starts
-                        # at 50. Gene starts at 200 on target)
-                        gene_start_on_target = walk_seg_start + gene_start_relative_to_ref_seg
-                        gene_end_on_target = walk_seg_start + gene_end_relative_to_ref_seg
-                    else:
-                        gene_start_on_target_unord = walk_seg_end - gene_end_relative_to_ref_seg
-                        gene_end_on_target_unord = walk_seg_end - gene_start_relative_to_ref_seg
+                        gene_start_on_target_walk = walk_seg_start_pos_on_walk + gene_start_relative_to_ref_seg
+                        gene_end_on_target_walk = walk_seg_start_pos_on_walk + gene_end_relative_to_ref_seg
 
-                        # Ensure start < end for 0-based, half-open format
-                        gene_start_on_target = min(gene_start_on_target_unord, gene_end_on_target_unord)
-                        gene_end_on_target = max(gene_start_on_target_unord, gene_end_on_target_unord)
+                    if walk_seg_orientation == '-':
+                        gene_start_on_target_walk_unord = walk_seg_end_pos_on_walk - gene_end_relative_to_ref_seg
+                        gene_end_on_target_walk_unord = walk_seg_end_pos_on_walk - gene_start_relative_to_ref_seg
+                        gene_start_on_target_walk = min(gene_start_on_target_walk_unord, gene_end_on_target_walk_unord)
+                        gene_end_on_target_walk = max(gene_start_on_target_walk_unord, gene_end_on_target_walk_unord)
 
-                    # --- Variant Labeling ---
-                    variant_label = "No Variants"
-                    if not has_tags:
-                        variant_label = "Variant"
-
-                    overlap_len_on_target = gene_end_on_target - gene_start_on_target
-                    if overlap_len_on_target < 0:
-                        print(
-                            f"Warning: Calculated negative overlap length for gene {gene_feature_mapping['gene']} on target {sample_id}/{sequence_id}. Skipping.")
+                    if gene_start_on_target_walk >= gene_end_on_target_walk:
                         continue
 
-                    # Store the mapped gene information
-                    mapped_gene_info = {
+                    has_segments_overlapping_gene_on_target_walk = False
+
+                    for overlapping_segment in segments_in_this_walk.overlap(gene_start_on_target_walk,
+                                                                             gene_end_on_target_walk):
+                        overlapping_segment_id = overlapping_segment.data['segment_id']
+
+                        if seg_lookup[overlapping_segment_id]['sequence_id'] is None:
+                            has_segments_overlapping_gene_on_target_walk = True
+                            break
+
+                    variant_label = 'No Variant'
+                    if has_segments_overlapping_gene_on_target_walk:
+                        variant_label = 'Variant'
+
+                    mapped_target_segments[sample_id][target_sequence_id].append({
                         'sample_id': sample_id,
-                        'target_contig_id': sequence_id,
-                        'gene_name': gene_feature_mapping['gene'],
-                        'feature_type': gene_feature_mapping['feature_type'],
-                        'start_on_target': gene_start_on_target,
-                        'end_on_target': gene_end_on_target,
-                        'original_ref_chrom': original_ref_chrom,
-                        'original_gene_start': original_gene_start,
-                        'original_gene_end': original_gene_end,
+                        'target_sequence_id': target_sequence_id,
+                        'gene_name': ref_gene,
+                        'feature_type': ref_feature_type,
+                        'start_on_target': gene_start_on_target_walk,
+                        'end_on_target': gene_end_on_target_walk,
+                        'original_ref_chrom': gene_annotation_on_reference['sequence_id'],
+                        'original_gene_start': gene_annotation_on_reference.get('original_feat_start'),
+                        'original_gene_end': gene_annotation_on_reference.get('original_feat_end'),
                         'mapped_segment_id': ref_segment_id,
                         'segment_orientation_in_walk': walk_seg_orientation,
-                        'overlap_len_on_target': overlap_len_on_target,
+                        'overlap_len_on_target': gene_end_on_target_walk - gene_start_on_target_walk,
                         'variant_label': variant_label
-                    }
-                    mapped_genes_on_target_walks[sample_id][sequence_id].append(mapped_gene_info)
+                    })
 
-    print("Finished gene mapping onto target genome walks.\n")
+        generate_bed_like_file(target_output, mapped_target_segments[sample_id])
 
-    for sample_id, sequence_ids in mapped_genes_on_target_walks.items():
-        all_genes_for_sample = []
-        for sequence_id, gene_list in sequence_ids.items():
-            all_genes_for_sample.extend(gene_list)
-
-        if all_genes_for_sample:
-            output_filename = f"test_files/{sample_id}.mapped_genes_on_target_walks.bed"
-            generate_bed(all_genes_for_sample, output_filename)
-        else:
-            print(f"No genes mapped for sample {sample_id}. Skipping file generation.")
-
-    return mapped_genes_on_target_walks
+    return mapped_target_segments
