@@ -135,9 +135,8 @@ def annotation_mapping(gff_filepath):
             attributes = fields[8].split(';')
             gene = None
 
-            # Assuming GFF is 0
             try:
-                start = int(fields[3]) - 1
+                start = int(fields[3])
                 end = int(fields[4])
             except ValueError:
                 print(f'Invalid start or end coordinate format in line: {line}')

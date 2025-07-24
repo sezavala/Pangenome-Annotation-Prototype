@@ -96,6 +96,8 @@ def get_walks(gfa_filepath, seg_lookup, reference_sample):
     return walks
 
 
+
+
 def map_genes_to_target_segments(gene_ref_mappings, all_walks_data, seg_lookup):
     gene_start_on_target_walk = gene_end_on_target_walk = None
     mapped_target_segments = defaultdict(lambda: defaultdict(list))
@@ -119,7 +121,6 @@ def map_genes_to_target_segments(gene_ref_mappings, all_walks_data, seg_lookup):
                                                gene_annotation_on_reference['seg_start_on_ref']
 
                 ref_segments_on_walk = segments_by_id_in_current_walk.get(ref_segment_id, [])
-
                 if not ref_segments_on_walk:
                     continue
 
@@ -131,8 +132,7 @@ def map_genes_to_target_segments(gene_ref_mappings, all_walks_data, seg_lookup):
                     if walk_seg_orientation == '+':
                         gene_start_on_target_walk = walk_seg_start_pos_on_walk + gene_start_relative_to_ref_seg
                         gene_end_on_target_walk = walk_seg_start_pos_on_walk + gene_end_relative_to_ref_seg
-
-                    if walk_seg_orientation == '-':
+                    elif walk_seg_orientation == '-':
                         gene_start_on_target_walk_unord = walk_seg_end_pos_on_walk - gene_end_relative_to_ref_seg
                         gene_end_on_target_walk_unord = walk_seg_end_pos_on_walk - gene_start_relative_to_ref_seg
                         gene_start_on_target_walk = min(gene_start_on_target_walk_unord, gene_end_on_target_walk_unord)
@@ -141,19 +141,20 @@ def map_genes_to_target_segments(gene_ref_mappings, all_walks_data, seg_lookup):
                     if gene_start_on_target_walk >= gene_end_on_target_walk:
                         continue
 
-                    has_segments_overlapping_gene_on_target_walk = False
+                    # --- Proper variant check ---
+                    variant = False
+                    for ovl in segments_in_this_walk.overlap(gene_start_on_target_walk, gene_end_on_target_walk):
+                        ovl_id = ovl.data['segment_id']
 
-                    for overlapping_segment in segments_in_this_walk.overlap(gene_start_on_target_walk,
-                                                                             gene_end_on_target_walk):
-                        overlapping_segment_id = overlapping_segment.data['segment_id']
+                        # Skip reference segment itself
+                        if ovl_id == ref_segment_id:
+                            continue
 
-                        if seg_lookup[overlapping_segment_id]['sequence_id'] is None:
-                            has_segments_overlapping_gene_on_target_walk = True
-                            break
+                        # Variant = any non-reference segment overlapping the gene
+                        variant = True
+                        break
 
-                    variant_label = 'No Variant'
-                    if has_segments_overlapping_gene_on_target_walk:
-                        variant_label = 'Variant'
+                    variant_label = 'Variant' if variant else 'No Variant'
 
                     mapped_target_segments[sample_id][target_sequence_id].append({
                         'sample_id': sample_id,
