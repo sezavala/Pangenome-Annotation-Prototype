@@ -90,6 +90,7 @@ def get_walks(gfa_filepath, seg_lookup, reference_sample):
                     Interval(current_position, current_position + segment_length, segment_info_in_walk)
                 )
                 current_position += segment_length
+            break
 
     print('Successfully parsed Walk paths.\n')
     time.sleep(3)
@@ -115,6 +116,7 @@ def map_genes_to_target_segments(gene_ref_mappings, all_walks_data, seg_lookup):
                 ref_segment_id = gene_annotation_on_reference['segment_id']
                 ref_gene = gene_annotation_on_reference['gene']
                 ref_feature_type = gene_annotation_on_reference['feature_type']
+                ref_feature_id = gene_annotation_on_reference['feature_id']
                 gene_start_relative_to_ref_seg = gene_annotation_on_reference['overlap_start'] - \
                                                  gene_annotation_on_reference['seg_start_on_ref']
                 gene_end_relative_to_ref_seg = gene_annotation_on_reference['overlap_end'] - \
@@ -159,6 +161,7 @@ def map_genes_to_target_segments(gene_ref_mappings, all_walks_data, seg_lookup):
                     mapped_target_segments[sample_id][target_sequence_id].append({
                         'sample_id': sample_id,
                         'target_sequence_id': target_sequence_id,
+                        'feature_id': ref_feature_id,
                         'gene_name': ref_gene,
                         'feature_type': ref_feature_type,
                         'start_on_target': gene_start_on_target_walk,

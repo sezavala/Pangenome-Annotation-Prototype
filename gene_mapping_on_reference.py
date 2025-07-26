@@ -134,6 +134,7 @@ def annotation_mapping(gff_filepath):
             feature_type = fields[2]
             attributes = fields[8].split(';')
             gene = None
+            gene_id = None
 
             try:
                 start = int(fields[3])
@@ -148,7 +149,10 @@ def annotation_mapping(gff_filepath):
                     tag, value = attribute.split('=', 1)
                     if tag == 'gene':
                         gene = value
-                        break
+                    elif tag == 'ID':
+                        gene_id = value
+                    elif tag == 'Parent' and gene_id is None:
+                        gene_id = value
 
             # Skip lines with no gene attributes
             if gene is None:
@@ -159,6 +163,7 @@ def annotation_mapping(gff_filepath):
                 'feature_start': start,
                 'feature_end': end,
                 'feature_type': feature_type,
+                'feature_id': gene_id,
             }
 
             annotation_map[sequence_id][gene].append(annotation_info)
@@ -195,7 +200,12 @@ def map_genes_to_segments(segment_tree, annotation_map, reference_sample):
                 feat_start = feature['feature_start']
                 feat_end = feature['feature_end']
                 feat_type = feature['feature_type']
-                for overlaps in segment_tree[sequence_id][feat_start:feat_end]:
+                feature_id = feature['feature_id']
+
+                feat_start_for_calc = feat_start - 1
+                feat_end_for_calc = feat_end
+
+                for overlaps in segment_tree[sequence_id][feat_start_for_calc:feat_end_for_calc]:
                     seg_start = overlaps.begin
                     seg_end = overlaps.end
                     seg_info = overlaps.data
@@ -206,6 +216,7 @@ def map_genes_to_segments(segment_tree, annotation_map, reference_sample):
                     mappings.append({
                         'sequence_id': sequence_id,
                         'gene': gene,
+                        'feature_id': feature_id,
                         'feature_type': feat_type,
                         'original_feat_start': feat_start,
                         'original_feat_end': feat_end,

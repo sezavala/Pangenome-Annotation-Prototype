@@ -34,6 +34,7 @@ def generate_bed_like_file(output_filepath, mapped_genes_for_sample_data):
         for target_sequence_id, gene_list in mapped_genes_for_sample_data.items():
             for gene_info in gene_list:
                 sample_id = gene_info['sample_id']
+                feature_id = gene_info['feature_id']
                 chrom = gene_info['target_sequence_id']
                 start = str(gene_info['start_on_target'])
                 end = str(gene_info['end_on_target'])
@@ -50,7 +51,7 @@ def generate_bed_like_file(output_filepath, mapped_genes_for_sample_data):
 
                 # Create the tab-separated string for the current gene entry
                 line_data = [
-                    sample_id, chrom, start, end, name, feature_type, orientation,
+                    sample_id, chrom, feature_id, start, end, name, feature_type, orientation,
                     original_ref_chrom, original_gene_start, original_gene_end,
                     mapped_segment_id, overlap_len_on_target, variant_label
                 ]
